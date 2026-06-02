@@ -10,77 +10,86 @@ options = Options()
 options.debugger_address = "127.0.0.1:9222"
 
 driver = webdriver.Chrome(options=options)
-wait = WebDriverWait(driver, 7)
+wait = WebDriverWait(driver, 5)
 
-print("Conectado e visualizando o seu perfil!")
+print("Conectado ao navegador")
 
 
-def deletar_proximo_tweet():
+def processar_proximo_post():
     try:
-        # 1. Encontra todos os blocos de posts/artigos na tela
-        posts = wait.until(EC.presence_of_all_elements_located((By.XPATH, '//article')))
+        # Encontra o primeiro artigo/post na tela
+        post = wait.until(EC.presence_of_element_located((By.XPATH, '//article')))
 
-        for post in posts:
-            # Centraliza o post na tela para análise
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", post)
-            time.sleep(0.5)
+        # Centraliza o post na tela
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", post)
+        time.sleep(0.5)
 
-            # procura se tem um texto em cima do post e ve se tem alguma dessas palavras se tiver ele pula
-            texto_post = post.text.lower()
-            if "republicou" in texto_post or "repostou" in texto_post or "reposted" in texto_post:
-                print("Repost encontrado pulando")
+        texto_post = post.text.lower()
 
-                continue  # Pula para o próximo post da lista sem clicar nos 3 pontinhos
+        # Se tiver alguma dessas palavras indica que é retweet ou anuncio e pula
+        if any(palavra in texto_post for palavra in ["republicou", "repostou", "reposted", "promovido", "ad", "seguir"]):
+            print("Repost ou anuncio encontrado pulando")
+            # Remove o elemento completamente do HTML para o Selenium passar pro proximo
+            driver.execute_script("arguments[0].remove();", post)
+            return "pula"
 
-            print("tweet encontrado")
-            menu_botao = post.find_element(By.XPATH, './/button[@data-testid="caret"]')
-            driver.execute_script("arguments[0].click();", menu_botao)
-            print("Menu aberto")
-            time.sleep(1)
+        # Se passou pela checagem é um tweet proprio
+        print("Tweet encontrado abrindo menu")
+        menu_botao = post.find_element(By.XPATH, './/button[@data-testid="caret"]')
+        driver.execute_script("arguments[0].click();", menu_botao)
+        time.sleep(0.8)
 
-            # Busca opção de Excluir
-            try:
-                excluir_opcao = wait.until(EC.element_to_be_clickable(
-                    (By.XPATH, '//span[contains(text(), "Excluir") or contains(text(), "Delete")]')))
-                excluir_opcao.click()
-                print("Opcao de excluir selecionada")
-                time.sleep(3)
+        # Busca opcao de Excluir
+        try:
+            excluir_opcao = wait.until(EC.element_to_be_clickable(
+                (By.XPATH, '//span[contains(text(), "Excluir") or contains(text(), "Delete")]')))
+            excluir_opcao.click()
+            time.sleep(0.8)
 
-                # Confirmação final
-                confirmar_botao = wait.until(
-                    EC.element_to_be_clickable((By.XPATH, '//button[@data-testid="confirmationSheetConfirm"]')))
-                confirmar_botao.click()
-                print("Tweet deletado com suceso")
-                time.sleep(2)
-                return True
-            except:
-                # evita selecionar a opcao errada caso abra menu de repost
-                print("Opcao de excluir nao encontrada")
-                driver.execute_script("arguments[0].click();", driver.find_element(By.XPATH, '//body'))
-                time.sleep(1)
+            # Confirmacao final
+            confirmar_botao = wait.until(
+                EC.element_to_be_clickable((By.XPATH, '//button[@data-testid="confirmationSheetConfirm"]')))
+            confirmar_botao.click()
 
-        # Se passou por todos os posts da tela atual e não deletou nenhum (ex: todos eram retweets)
-        print("Todos os posts analizados rolando a tela")
-        driver.execute_script("window.scrollBy(0, 700);")
-        time.sleep(2)
-        return False
+            print("Tweet deletado com sucesso")
+            time.sleep(1.5)
+            return "deletado"
+
+        except Exception as e:
+            print("Opcao de excluir nao encontrada fechando menu")
+            driver.execute_script("arguments[0].click();", driver.find_element(By.XPATH, '//body'))
+            # Remove o post com erro completamente do HTML
+            driver.execute_script("arguments[0].remove();", post)
+            return "pula"
 
     except Exception as e:
-        print("Erro ao escanear a tela")
-        driver.execute_script("window.scrollBy(0, 700);")
-        time.sleep(2)
-        return False
+        # Se nao achar posts na tela atual precisa rolar
+        return "rola"
+
 
 print("Iniciando limpeza")
 tweets_deletados = 0
+falhas_seguidas = 0
 
 while True:
-    sucesso = deletar_proximo_tweet()
-    if sucesso:
+    resultado = processar_proximo_post()
+
+    if resultado == "deletado":
         tweets_deletados += 1
+        falhas_seguidas = 0
         print(f"Total de tweets deletados: {tweets_deletados}")
-    else:
-        total_restante = driver.find_elements(By.XPATH, '//button[@data-testid="caret"]')
-        if len(total_restante) == 0:
-            print("Fim da pagina ou sem tweets visiveis")
-            time.sleep(3)
+
+    elif resultado == "pula":
+        falhas_seguidas = 0
+        continue
+
+    elif resultado == "rola":
+        falhas_seguidas += 1
+        print("Nenhum tweet na tela rolando a pagina")
+        driver.execute_script("window.scrollBy(0, 600);")
+        time.sleep(2)
+
+        # Se rolar 5 vezes e nao achar nada o script para
+        if falhas_seguidas >= 5:
+            print("Fim da pagina todos os tweets foram deletados")
+            break
