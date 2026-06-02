@@ -4,7 +4,10 @@ Python bot that automatically deletes tweets from a Twitter/X account using Sele
 
 # HOW TO USE
 - Open the cmd
-- Enter start chrome --remote-debugging-port=9222 --user-data-dir="C:\selenium\ChromeProfile" to start the chrome
+- Enter the command below to start chrome:
+```bash
+start chrome --remote-debugging-port=9222 --user-data-dir="C:\selenium\ChromeProfile"
+```
 - Open the twitter and log into your account
 - Run the code
 
